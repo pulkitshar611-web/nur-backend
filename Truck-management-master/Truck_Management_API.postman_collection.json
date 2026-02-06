@@ -1,0 +1,1123 @@
+{
+	"info": {
+		"_postman_id": "truck-management-api-2024",
+		"name": "Truck Management API",
+		"description": "Complete API collection for Truck Management System - Admin and Driver endpoints",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Admin Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.success && response.token) {",
+									"        pm.environment.set('adminToken', response.token);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"loginType\": \"admin\",\n  \"email\": \"admin@m.com\",\n  \"password\": \"password\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"auth",
+								"login"
+							]
+						},
+						"description": "Login as admin using email and password"
+					},
+					"response": []
+				},
+				{
+					"name": "Driver Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.success && response.token) {",
+									"        pm.environment.set('driverToken', response.token);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"loginType\": \"driver\",\n  \"user_id_code\": \"DRV001\",\n  \"pin\": \"1234\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"auth",
+								"login"
+							]
+						},
+						"description": "Login as driver using user_id_code and 4-digit PIN"
+					},
+					"response": []
+				}
+			],
+			"description": "Authentication endpoints for Admin and Driver login"
+		},
+		{
+			"name": "Admin – Dashboard & Tickets",
+			"item": [
+				{
+					"name": "Get Dashboard Stats",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/dashboard/stats",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"dashboard",
+								"stats"
+							]
+						},
+						"description": "Get dashboard statistics: unbilled tickets, revenue, driver pay, estimated profit, and weekly breakdown"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Tickets",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/tickets?month=2025-11&customer=Aecon&driver=John&status=Pending&search=9109",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"tickets"
+							],
+							"query": [
+								{
+									"key": "month",
+									"value": "2025-11",
+									"description": "Filter by month (format: YYYY-MM or 'Nov 2025')"
+								},
+								{
+									"key": "customer",
+									"value": "Aecon",
+									"description": "Filter by customer name"
+								},
+								{
+									"key": "driver",
+									"value": "John",
+									"description": "Filter by driver name"
+								},
+								{
+									"key": "status",
+									"value": "Pending",
+									"description": "Filter by status (Pending, Approved, Rejected)"
+								},
+								{
+									"key": "search",
+									"value": "9109",
+									"description": "Search by ticket number"
+								}
+							]
+						},
+						"description": "Get all tickets with optional filters: month, customer, driver, status, search"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Ticket by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/tickets/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"tickets",
+								"1"
+							]
+						},
+						"description": "Get a specific ticket by ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Ticket",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"bill_rate\": 135.00,\n  \"pay_rate\": 100.00,\n  \"quantity\": 9.0,\n  \"status\": \"Approved\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/tickets/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"tickets",
+								"1"
+							]
+						},
+						"description": "Update ticket details (bill_rate, pay_rate, quantity, status). Totals are automatically recalculated."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Ticket Status",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"Approved\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/tickets/1/status",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"tickets",
+								"1",
+								"status"
+							]
+						},
+						"description": "Update ticket status (Pending, Approved, or Rejected)"
+					},
+					"response": []
+				}
+			],
+			"description": "Admin dashboard and ticket management endpoints"
+		},
+		{
+			"name": "Admin – Drivers",
+			"item": [
+				{
+					"name": "Get All Drivers",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/drivers",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"drivers"
+							]
+						},
+						"description": "Get all drivers in the system"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Driver",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"user_id_code\": \"DRV001\",\n  \"name\": \"John Doe\",\n  \"phone\": \"555-0102\",\n  \"default_pay_rate\": 25.50,\n  \"pin\": \"1234\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/drivers",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"drivers"
+							]
+						},
+						"description": "Create a new driver. PIN must be exactly 4 digits."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Driver",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"John Smith\",\n  \"phone\": \"555-0103\",\n  \"default_pay_rate\": 26.00,\n  \"pin\": \"5678\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/drivers/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"drivers",
+								"1"
+							]
+						},
+						"description": "Update driver information. PIN is optional - leave blank to keep current PIN."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Driver",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/drivers/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"drivers",
+								"1"
+							]
+						},
+						"description": "Delete a driver and their associated user account"
+					},
+					"response": []
+				}
+			],
+			"description": "Admin driver management endpoints (CRUD operations)"
+		},
+		{
+			"name": "Admin – Customers",
+			"item": [
+				{
+					"name": "Get All Customers",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/customers",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"customers"
+							]
+						},
+						"description": "Get all customers with their default bill rates"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Customer",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Aecon\",\n  \"default_bill_rate\": 135.00\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/customers",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"customers"
+							]
+						},
+						"description": "Create a new customer with default bill rate"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Customer",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Aecon Construction\",\n  \"default_bill_rate\": 140.00\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/customers/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"customers",
+								"1"
+							]
+						},
+						"description": "Update customer name and/or default bill rate"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Customer",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/customers/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"customers",
+								"1"
+							]
+						},
+						"description": "Delete a customer"
+					},
+					"response": []
+				}
+			],
+			"description": "Admin customer management endpoints (CRUD operations)"
+		},
+		{
+			"name": "Admin – Invoice & Settlements",
+			"item": [
+				{
+					"name": "Generate Invoice",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/invoices/generate?customerId=1&startDate=2025-11-01&endDate=2025-11-30",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"invoices",
+								"generate"
+							],
+							"query": [
+								{
+									"key": "customerId",
+									"value": "1",
+									"description": "Customer ID"
+								},
+								{
+									"key": "startDate",
+									"value": "2025-11-01",
+									"description": "Start date (YYYY-MM-DD)"
+								},
+								{
+									"key": "endDate",
+									"value": "2025-11-30",
+									"description": "End date (YYYY-MM-DD)"
+								}
+							]
+						},
+						"description": "Generate invoice for a customer within date range. Returns approved tickets with subtotal, GST (5%), and total."
+					},
+					"response": []
+				},
+				{
+					"name": "Download Invoice PDF",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/invoices/download/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"invoices",
+								"download",
+								"1"
+							]
+						},
+						"description": "Download invoice as PDF (currently returns JSON data for PDF generation)"
+					},
+					"response": []
+				},
+				{
+					"name": "Generate Settlement",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/settlements/generate?driverId=1&startDate=2025-11-01&endDate=2025-11-30",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"settlements",
+								"generate"
+							],
+							"query": [
+								{
+									"key": "driverId",
+									"value": "1",
+									"description": "Driver ID"
+								},
+								{
+									"key": "startDate",
+									"value": "2025-11-01",
+									"description": "Start date (YYYY-MM-DD)"
+								},
+								{
+									"key": "endDate",
+									"value": "2025-11-30",
+									"description": "End date (YYYY-MM-DD)"
+								}
+							]
+						},
+						"description": "Generate driver settlement/pay statement within date range. Returns all tickets with total pay."
+					},
+					"response": []
+				},
+				{
+					"name": "Download Settlement PDF",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/settlements/download/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"settlements",
+								"download",
+								"1"
+							]
+						},
+						"description": "Download driver settlement as PDF (currently returns JSON data for PDF generation)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Bill Rates",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin/settings/bill-rates",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"settings",
+								"bill-rates"
+							]
+						},
+						"description": "Get all customers with their default bill rates (for Data Setup page)"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Bill Rates",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{adminToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"rates\": [\n    {\n      \"id\": 1,\n      \"default_bill_rate\": 135.00\n    },\n    {\n      \"id\": 2,\n      \"default_bill_rate\": 120.00\n    }\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/settings/bill-rates",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"settings",
+								"bill-rates"
+							]
+						},
+						"description": "Update multiple customer bill rates at once (for Data Setup page)"
+					},
+					"response": []
+				}
+			],
+			"description": "Admin invoice generation and driver settlement endpoints"
+		},
+		{
+			"name": "Driver – Dashboard & Tickets",
+			"item": [
+				{
+					"name": "Get Dashboard",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{driverToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/driver/dashboard",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"driver",
+								"dashboard"
+							]
+						},
+						"description": "Get driver dashboard data: weekly snapshot (total hours, estimated pay) and recent tickets"
+					},
+					"response": []
+				},
+				{
+					"name": "Get My Tickets",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{driverToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/driver/tickets",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"driver",
+								"tickets"
+							]
+						},
+						"description": "Get all tickets created by the logged-in driver"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Ticket",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{driverToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "date",
+									"value": "2025-11-19",
+									"type": "text"
+								},
+								{
+									"key": "truck_number",
+									"value": "9728",
+									"type": "text"
+								},
+								{
+									"key": "customer",
+									"value": "Aecon",
+									"type": "text"
+								},
+								{
+									"key": "job_type",
+									"value": "Tri Endump Demo",
+									"type": "text"
+								},
+								{
+									"key": "ticket_number",
+									"value": "9109",
+									"type": "text"
+								},
+								{
+									"key": "quantity",
+									"value": "9.0",
+									"type": "text"
+								},
+								{
+									"key": "photo",
+									"type": "file",
+									"src": [],
+									"description": "Photo proof (optional)"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/driver/tickets",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"driver",
+								"tickets"
+							]
+						},
+						"description": "Create a new ticket. Photo upload is optional. Bill rate and pay rate are automatically set based on customer default and driver default pay rate."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Ticket by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{driverToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/driver/tickets/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"driver",
+								"tickets",
+								"1"
+							]
+						},
+						"description": "Get a specific ticket (only tickets created by the logged-in driver)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Customers",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{driverToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/driver/customers",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"driver",
+								"customers"
+							]
+						},
+						"description": "Get list of customers (for dropdown in Add Ticket form)"
+					},
+					"response": []
+				}
+			],
+			"description": "Driver dashboard and ticket management endpoints"
+		},
+		{
+			"name": "Driver – My Pay",
+			"item": [
+				{
+					"name": "Get Pay History",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{driverToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/driver/pay?month=2025-11",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"driver",
+								"pay"
+							],
+							"query": [
+								{
+									"key": "month",
+									"value": "2025-11",
+									"description": "Month filter (format: YYYY-MM or 'November 2025')"
+								}
+							]
+						},
+						"description": "Get pay history for the logged-in driver. Returns summary (total hours, gross pay, status) and list of tickets."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Pay by Month",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{driverToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/driver/pay/2025-11",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"driver",
+								"pay",
+								"2025-11"
+							]
+						},
+						"description": "Get pay history for a specific month (alternative endpoint)"
+					},
+					"response": []
+				}
+			],
+			"description": "Driver pay history endpoints"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:5000/api",
+			"type": "string"
+		},
+		{
+			"key": "adminToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "driverToken",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
+
