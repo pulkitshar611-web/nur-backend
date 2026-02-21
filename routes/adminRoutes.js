@@ -23,14 +23,14 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
-    
+
     if (mimetype && extname) {
       return cb(null, true);
     } else {
@@ -102,9 +102,78 @@ router.get('/master/trucks', masterDataController.getAllTruckMaster);
 router.post('/master/trucks', masterDataController.createTruckMaster);
 router.delete('/master/trucks/:id', masterDataController.deleteTruckMaster);
 
+// Configure multer specifically for logo uploads
+const logoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const fs = require('fs');
+    const logoDir = 'uploads/logos';
+    if (!fs.existsSync(logoDir)) {
+      fs.mkdirSync(logoDir, { recursive: true });
+    }
+    cb(null, logoDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, 'company_logo' + ext);
+  }
+});
+
+const logoUpload = multer({
+  storage: logoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /jpeg|jpg|png|gif|webp/;
+    const extOk = allowed.test(path.extname(file.originalname).toLowerCase());
+    const mimeOk = allowed.test(file.mimetype);
+    if (extOk && mimeOk) return cb(null, true);
+    cb(new Error('Only image files (JPG, PNG, GIF, WebP) are allowed'));
+  }
+});
+
 // System Settings routes
 router.get('/system-settings', systemSettingsController.getSystemSettings);
 router.put('/system-settings', systemSettingsController.updateSystemSettings);
 
-module.exports = router;
+// Logo upload route — POST /admin/upload-logo
+// Wrap multer manually so errors return clean JSON (not HTML 500)
+router.post('/upload-logo', (req, res) => {
+  logoUpload.single('logo')(req, res, (err) => {
+    if (err) {
+      // Multer error (file type / size / etc.)
+      console.error('[Logo Upload] Multer error:', err.message);
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ success: false, message: 'File too large. Maximum allowed size is 5MB.' });
+      }
+      return res.status(400).json({ success: false, message: err.message || 'File upload error' });
+    }
 
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file received. Please select an image file.' });
+    }
+
+    const logoUrl = `/uploads/logos/${req.file.filename}`;
+    console.log('[Logo Upload] ✅ Logo saved:', req.file.path, '→ public URL:', logoUrl);
+    return res.json({
+      success: true,
+      message: 'Logo uploaded successfully',
+      data: { logo_url: logoUrl }
+    });
+  });
+});
+
+// SMTP connection test route — GET /admin/test-smtp
+router.get('/test-smtp', async (req, res) => {
+  const { verifyConnection } = require('../utils/emailService');
+  const result = await verifyConnection();
+  if (result.success) {
+    return res.json({ success: true, message: '✅ SMTP connection is working correctly!' });
+  }
+  return res.status(500).json({
+    success: false,
+    message: '❌ SMTP connection failed. Check your .env SMTP settings.',
+    error: result.error,
+    hint: 'For Gmail: ensure SMTP_PASS is a 16-character App Password, not your regular Gmail password. Generate one at: https://myaccount.google.com/apppasswords'
+  });
+});
+
+module.exports = router;

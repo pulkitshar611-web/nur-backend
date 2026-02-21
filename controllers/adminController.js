@@ -7,6 +7,8 @@ const bcrypt = require('bcryptjs');
 const pool = require('../config/db');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const { sendInvoiceEmail } = require('../utils/emailService');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * Helper function to ensure customer columns exist
@@ -35,7 +37,7 @@ const ensureCustomerColumns = async () => {
         try {
           await pool.execute(col.sql);
           console.log(`✅ Added missing column: customers.${col.name}`);
-          
+
           // Set default values for new columns
           if (col.name === 'billing_enabled') {
             await pool.execute('UPDATE customers SET billing_enabled = TRUE WHERE billing_enabled IS NULL');
@@ -157,7 +159,7 @@ const createDriver = async (req, res) => {
          AND TABLE_NAME = 'users'`
       );
       const userExistingColumns = userColumns.map(col => col.COLUMN_NAME);
-      
+
       // Check which columns exist in drivers table
       const [driverColumns] = await connection.execute(
         `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
@@ -169,7 +171,7 @@ const createDriver = async (req, res) => {
       // Build user INSERT query dynamically
       const userInsertCols = ['email', 'password', 'role'];
       const userInsertVals = [`driver_${user_id_code}@trucking.com`, hashedPin, 'driver'];
-      
+
       if (userExistingColumns.includes('company_id')) {
         userInsertCols.push('company_id');
         userInsertVals.push(1); // Default company_id if column exists
@@ -186,7 +188,7 @@ const createDriver = async (req, res) => {
       // Build driver INSERT query dynamically
       const driverInsertCols = ['user_id', 'user_id_code', 'name', 'phone', 'default_pay_rate', 'pin'];
       const driverInsertVals = [userId, user_id_code, name, phone || null, default_pay_rate, hashedPin];
-      
+
       if (driverExistingColumns.includes('company_id')) {
         driverInsertCols.splice(1, 0, 'company_id'); // Insert after user_id
         driverInsertVals.splice(1, 0, 1); // Default company_id if column exists
@@ -285,7 +287,7 @@ const updateDriver = async (req, res) => {
       const hashedPin = await bcrypt.hash(pin, 10);
       updates.push('pin = ?');
       values.push(hashedPin);
-      
+
       // Also update user password
       await pool.execute(
         'UPDATE users SET password = ? WHERE id = ?',
@@ -349,7 +351,7 @@ const deleteDriver = async (req, res) => {
     try {
       // Delete driver
       await connection.execute('DELETE FROM drivers WHERE id = ?', [id]);
-      
+
       // Delete user account
       await connection.execute('DELETE FROM users WHERE id = ?', [userId]);
 
@@ -382,7 +384,7 @@ const getAllCustomers = async (req, res) => {
   try {
     // AUTO-FIX: Ensure all required columns exist
     await ensureCustomerColumns();
-    
+
     const [customers] = await pool.execute(
       'SELECT * FROM customers ORDER BY name ASC'
     );
@@ -408,7 +410,7 @@ const createCustomer = async (req, res) => {
   try {
     // AUTO-FIX: Ensure all required columns exist
     await ensureCustomerColumns();
-    
+
     const { name, contact_person, phone, email, gst_number, billing_enabled, status, default_bill_rate } = req.body;
 
     if (!name || !contact_person || !phone || !email || default_bill_rate === undefined) {
@@ -429,12 +431,12 @@ const createCustomer = async (req, res) => {
     // Build dynamic INSERT query
     const insertCols = ['name', 'contact_person', 'phone', 'email'];
     const insertVals = [name, contact_person, phone, email];
-    
+
     if (existingColumns.includes('gst_number')) {
       insertCols.push('gst_number');
       insertVals.push(gst_number || null);
     }
-    
+
     insertCols.push('billing_enabled', 'status', 'default_bill_rate');
     insertVals.push(
       billing_enabled !== undefined ? billing_enabled : true,
@@ -451,16 +453,16 @@ const createCustomer = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'Customer created successfully',
-      data: { 
-        id: result.insertId, 
-        name, 
-        contact_person, 
-        phone, 
+      data: {
+        id: result.insertId,
+        name,
+        contact_person,
+        phone,
         email,
         gst_number: gst_number || null,
         billing_enabled: billing_enabled !== undefined ? billing_enabled : true,
         status: status || 'Active',
-        default_bill_rate 
+        default_bill_rate
       }
     });
   } catch (error) {
@@ -480,10 +482,10 @@ const updateCustomer = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, contact_person, phone, email, gst_number, billing_enabled, status, default_bill_rate } = req.body;
-    
+
     // AUTO-FIX: Ensure all required columns exist FIRST
     await ensureCustomerColumns();
-    
+
     // Verify customer exists
     const [existing] = await pool.execute(
       'SELECT id FROM customers WHERE id = ?',
@@ -553,7 +555,7 @@ const updateCustomer = async (req, res) => {
     // Add updated_at and id
     updates.push('updated_at = NOW()');
     values.push(id);
-    
+
     // Execute update
     await pool.execute(
       `UPDATE customers SET ${updates.join(', ')} WHERE id = ?`,
@@ -627,7 +629,7 @@ const getAllTickets = async (req, res) => {
 
     if (month && month.trim() !== '') {
       let monthNum, year;
-      
+
       // Handle different month formats
       if (month.includes('-')) {
         // Format: "2025-11" (YYYY-MM)
@@ -648,7 +650,7 @@ const getAllTickets = async (req, res) => {
           }
         }
       }
-      
+
       // Only add to query if we have valid month and year
       if (monthNum && year && !isNaN(monthNum) && !isNaN(year) && monthNum >= 1 && monthNum <= 12) {
         query += ` AND MONTH(t.date) = ? AND YEAR(t.date) = ?`;
@@ -802,7 +804,7 @@ const updateTicket = async (req, res) => {
     // Calculate totals
     updates.push('total_bill = ?');
     values.push(finalQty * finalBillRate);
-    
+
     updates.push('total_pay = ?');
     values.push(finalQty * finalPayRate);
 
@@ -984,6 +986,19 @@ const generateInvoice = async (req, res) => {
     const gst = subtotal * 0.05; // 5% GST
     const total = subtotal + gst;
 
+    // Fetch company profile settings
+    const [companySettings] = await pool.execute(
+      'SELECT company_name, company_logo, address, phone, email, website FROM company_settings LIMIT 1'
+    );
+    const companyProfile = companySettings.length > 0 ? companySettings[0] : {
+      company_name: 'Noor Trucking Inc.',
+      email: 'info@noortruckinginc.com',
+      address: null,
+      phone: null,
+      website: null,
+      company_logo: null
+    };
+
     return res.json({
       success: true,
       data: {
@@ -995,7 +1010,8 @@ const generateInvoice = async (req, res) => {
         tickets,
         subtotal,
         gst,
-        total
+        total,
+        company: companyProfile
       }
     });
   } catch (error) {
@@ -1071,7 +1087,7 @@ const downloadInvoice = async (req, res) => {
       console.error(`[PDF Download] No tickets found for customer ${customerName} in date range`);
       return sendError(404, 'No approved tickets found for the selected date range');
     }
-    
+
     // Log first ticket for debugging
     if (tickets.length > 0) {
       console.log(`[PDF Download] Sample ticket:`, {
@@ -1092,6 +1108,19 @@ const downloadInvoice = async (req, res) => {
     const gst = subtotal * 0.05; // 5% GST
     const total = subtotal + gst;
 
+    // --- FETCH COMPANY PROFILE ---
+    const [companySettings] = await pool.execute(
+      'SELECT company_name, company_logo, address, phone, email, website FROM company_settings LIMIT 1'
+    );
+    const companyProfile = companySettings.length > 0 ? companySettings[0] : {
+      company_name: 'Noor Trucking Inc.',
+      email: 'info@noortruckinginc.com',
+      address: null,
+      phone: null,
+      website: null,
+      company_logo: null
+    };
+
     console.log(`[PDF Download] Totals calculated: subtotal=$${subtotal.toFixed(2)}, gst=$${gst.toFixed(2)}, total=$${total.toFixed(2)}`);
 
     // Generate PDF using pdf-lib
@@ -1101,7 +1130,7 @@ const downloadInvoice = async (req, res) => {
     let font;
     let boldFont;
     let width, height;
-    
+
     try {
       pdfDoc = await PDFDocument.create();
       currentPage = pdfDoc.addPage([612, 792]); // US Letter
@@ -1114,412 +1143,280 @@ const downloadInvoice = async (req, res) => {
       console.error('[PDF Download] Error initializing PDF document:', pdfInitError);
       return sendError(500, `Failed to initialize PDF: ${pdfInitError.message}`);
     }
-    
-    const primaryColor = rgb(0.16, 0.36, 0.32); // #295b52
-    const margin = 50;
-    const topMargin = 50;
-    let yPos = height - topMargin;
 
-    // Helper function to wrap text (simple character-based wrapping)
-    const wrapText = (text, maxChars) => {
-      const textStr = String(text || '');
-      if (textStr.length <= maxChars) return [textStr];
-      
-      const lines = [];
-      let currentLine = '';
-      const words = textStr.split(' ');
-      
-      for (const word of words) {
-        const testLine = currentLine ? `${currentLine} ${word}` : word;
-        if (testLine.length <= maxChars) {
-          currentLine = testLine;
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  PDF CONSTANTS  (page = 612 × 792 pt)
+    // ═══════════════════════════════════════════════════════════════════════════
+    const PG_W = 612;
+    const PG_H = 792;
+    const ML = 40;                   // left margin
+    const MR = 40;                   // right margin
+    const COL_R = PG_W - MR;           // right edge = 572
+    const USABLE_W = PG_W - ML - MR;      // 532
+
+    const C_PRIMARY = rgb(0.16, 0.36, 0.32);
+    const C_DARK = rgb(0.15, 0.15, 0.15);
+    const C_MID = rgb(0.42, 0.42, 0.42);
+    const C_LIGHT = rgb(0.95, 0.95, 0.95);
+    const C_SEP = rgb(0.78, 0.78, 0.78);
+    const C_WHITE = rgb(1, 1, 1);
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
+    const wrap = (text, maxCh) => {
+      const s = String(text || '').trim();
+      if (!s) return ['-'];
+      if (s.length <= maxCh) return [s];
+      const words = s.split(' ');
+      const out = []; let cur = '';
+      for (const w of words) {
+        const attempt = cur ? `${cur} ${w}` : w;
+        if (attempt.length <= maxCh) { cur = attempt; }
+        else { if (cur) out.push(cur); cur = w.substring(0, maxCh); }
+      }
+      if (cur) out.push(cur);
+      return out.length ? out : ['-'];
+    };
+
+    const toDate = (d) => {
+      if (!d) return null;
+      if (d instanceof Date) return isNaN(d.getTime()) ? null : d;
+      const s = String(d).replace('T', ' ').split(' ')[0];
+      const [y, m, dy] = s.split('-');
+      if (!y || !m || !dy) return null;
+      const dt = new Date(Number(y), Number(m) - 1, Number(dy));
+      return isNaN(dt.getTime()) ? null : dt;
+    };
+    const fmtL = (d) => { const dt = toDate(d); return dt ? dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'; };
+    const fmtS = (d) => { const dt = toDate(d); return dt ? dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'; };
+
+    const dR = (pg, txt, rx, y, sz, f, c) => {
+      const tw = f.widthOfTextAtSize(txt, sz);
+      pg.drawText(txt, { x: rx - tw, y, size: sz, font: f, color: c || C_DARK });
+    };
+    const hRule = (pg, y) =>
+      pg.drawRectangle({ x: ML, y, width: USABLE_W, height: 0.5, color: C_SEP });
+
+    // ── Invoice meta ──────────────────────────────────────────────────────────
+    const INV_DATE = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    const INV_NUM = `INV-${customerId}-${String(startDate).replace(/-/g, '').slice(2)}${String(endDate).replace(/-/g, '').slice(-4)}`;
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  SECTION 1 — HEADER
+    //  Layout (fixed X zones):
+    //    Logo:         x=40,  max width=90, max height=75
+    //    Company info: x=140, width up to 230
+    //    Invoice info: x=572 (right-aligned), width ~190
+    // ═══════════════════════════════════════════════════════════════════════════
+    const HDR_TOP = PG_H - 38;            // y=754  (top anchor)
+    const LOGO_MAX_W = 90;
+    const LOGO_MAX_H = 70;
+    const INFO_X = 140;                   // company info left edge (fixed, never dynamic)
+    const LOGO_BOT = HDR_TOP - LOGO_MAX_H; // y=684  (bottom of logo zone)
+
+    // — Embed logo —
+    if (companyProfile.company_logo) {
+      try {
+        let lbytes = null, isPng = false;
+        if (companyProfile.company_logo.startsWith('data:image')) {
+          const mm = companyProfile.company_logo.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/);
+          if (mm) { lbytes = Buffer.from(mm[2], 'base64'); isPng = mm[1] === 'png' || mm[1] === 'webp'; }
         } else {
-          if (currentLine) lines.push(currentLine);
-          // If word itself is longer than maxChars, split it
-          if (word.length > maxChars) {
-            for (let i = 0; i < word.length; i += maxChars) {
-              lines.push(word.substring(i, i + maxChars));
-            }
-            currentLine = '';
-          } else {
-            currentLine = word;
-          }
+          const lp = path.join(__dirname, '..', companyProfile.company_logo);
+          if (fs.existsSync(lp)) { lbytes = fs.readFileSync(lp); isPng = lp.toLowerCase().endsWith('.png'); }
         }
-      }
-      if (currentLine) lines.push(currentLine);
-      return lines;
-    };
-
-    // Header Section with better spacing
-    currentPage.drawText('INVOICE', {
-      x: margin,
-      y: yPos,
-      size: 32,
-      font: boldFont,
-      color: primaryColor,
-    });
-
-    // Invoice metadata with better spacing
-    const invoiceNumber = `INV-${customerId}-${Date.now().toString().slice(-6)}`;
-    const today = new Date();
-    const invoiceDate = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}/${today.getFullYear()}`;
-    yPos -= 35;
-    currentPage.drawText(`Invoice #: ${invoiceNumber}`, { x: margin, y: yPos, size: 11, font });
-    yPos -= 18;
-    currentPage.drawText(`Date of Issue: ${invoiceDate}`, { x: margin, y: yPos, size: 11, font });
-
-    // Bill To Section (Right aligned) with better spacing
-    const billToX = width - 260;
-    yPos = height - topMargin;
-    currentPage.drawText('Bill To:', {
-      x: billToX,
-      y: yPos,
-      size: 13,
-      font: boldFont,
-      color: primaryColor,
-    });
-    yPos -= 20;
-    
-    // Customer name with wrapping
-    const customerNameLines = wrapText(customerName, 25);
-    customerNameLines.forEach(line => {
-      currentPage.drawText(line, { x: billToX, y: yPos, size: 11, font });
-      yPos -= 16;
-    });
-    
-    // Period with formatted dates
-    const formatPeriodDate = (dateStr) => {
-      if (!dateStr) return '';
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return dateStr;
-      return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
-    };
-    currentPage.drawText(`Period: ${formatPeriodDate(startDate)} to ${formatPeriodDate(endDate)}`, {
-      x: billToX,
-      y: yPos,
-      size: 10,
-      font: font,
-      color: rgb(0.5, 0.5, 0.5),
-    });
-
-    // Table Header with optimized spacing
-    yPos = height - 200;
-    const rowHeight = 26;
-    
-    // Optimized column widths to fit all 8 columns properly on page
-    // [Date, Ticket #, Description, Driver, Subcontractor, Qty, Rate, Total]
-    // Page width: 612px, margins: 50px each side = 512px available
-    // Optimized widths: 60+58+120+70+85+42+50+65 = 550px + 21px spacing = 571px
-    const colWidths = [60, 58, 120, 70, 85, 42, 50, 65];
-    const colSpacing = 3;
-    
-    // Calculate actual table width based on column widths
-    const totalColWidths = colWidths.reduce((sum, width) => sum + width, 0);
-    const totalSpacing = colSpacing * (colWidths.length + 1); // spacing before first, between, and after last
-    const actualTableWidth = totalColWidths + totalSpacing;
-    
-    // Center the table on the page
-    const tableStartX = (width - actualTableWidth) / 2;
-    
-    // Draw header background
-    currentPage.drawRectangle({
-      x: tableStartX,
-      y: yPos - 22,
-      width: actualTableWidth,
-      height: rowHeight,
-      color: primaryColor,
-    });
-    
-    // Header labels - use full text, columns are wide enough
-    const headerLabels = ['Date', 'Ticket #:', 'Description', 'Driver', 'Subcontractor', 'Qty', 'Rate', 'Total'];
-    let xPos = tableStartX + colSpacing;
-    headerLabels.forEach((header, index) => {
-      // Left-align headers with consistent padding
-      currentPage.drawText(header, {
-        x: xPos + 2, // Small padding from column start
-        y: yPos - 5,
-        size: 9,
-        font: boldFont,
-        color: rgb(1, 1, 1),
-      });
-      xPos += colWidths[index] + colSpacing;
-    });
-
-    yPos -= rowHeight + 8;
-
-    // Table Rows with proper text wrapping
-    tickets.forEach((ticket, index) => {
-      // Check if we need a new page
-      if (yPos < 150) {
-        currentPage = pdfDoc.addPage([612, 792]);
-        yPos = height - 50;
-        
-        // Redraw header on new page with same alignment
-        currentPage.drawRectangle({
-          x: tableStartX,
-          y: yPos - 22,
-          width: actualTableWidth,
-          height: rowHeight,
-          color: primaryColor,
-        });
-        xPos = tableStartX + colSpacing;
-        headerLabels.forEach((header, idx) => {
-          currentPage.drawText(header, {
-            x: xPos + 2,
-            y: yPos - 5,
-            size: 9,
-            font: boldFont,
-            color: rgb(1, 1, 1),
-          });
-          xPos += colWidths[idx] + colSpacing;
-        });
-        yPos -= rowHeight + 8;
-      }
-
-      // Format date properly (MM/DD/YYYY format)
-      let ticketDate = '-';
-      if (ticket.date) {
-        try {
-          let dateObj = null;
-          
-          // Check if it's already a Date object
-          if (ticket.date instanceof Date) {
-            dateObj = ticket.date;
-          } else {
-            // Convert to string and check format
-            let dateStr = String(ticket.date);
-            
-            // Remove any timezone or GMT strings that might be in the date string
-            dateStr = dateStr.split('GMT')[0].split('UTC')[0].trim();
-            
-            // Handle MySQL date format (YYYY-MM-DD) - most common case
-            if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-              // MySQL date format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
-              const dateParts = dateStr.split('T')[0].split(' ')[0].split('-');
-              if (dateParts.length === 3) {
-                const [year, month, day] = dateParts;
-                ticketDate = `${month}/${day}/${year}`;
-              } else {
-                dateObj = new Date(dateStr);
-              }
-            } else if (dateStr.match(/^\d{2}\/\d{2}\/\d{4}/)) {
-              // Already in MM/DD/YYYY format
-              ticketDate = dateStr.substring(0, 10);
-            } else {
-              // Try parsing as Date
-              dateObj = new Date(dateStr);
-            }
-          }
-          
-          // Format Date object to MM/DD/YYYY if not already formatted
-          if (dateObj && !isNaN(dateObj.getTime()) && ticketDate === '-') {
-            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const day = String(dateObj.getDate()).padStart(2, '0');
-            const year = dateObj.getFullYear();
-            ticketDate = `${month}/${day}/${year}`;
-          }
-        } catch (e) {
-          console.error('[PDF Download] Date formatting error:', e, 'Date value:', ticket.date, 'Type:', typeof ticket.date);
-          ticketDate = '-';
+        if (lbytes) {
+          const li = isPng ? await pdfDoc.embedPng(lbytes) : await pdfDoc.embedJpg(lbytes);
+          const nat = li.scale(1);
+          const sc = Math.min(LOGO_MAX_H / nat.height, LOGO_MAX_W / nat.width, 1);
+          const sc2 = li.scale(sc);
+          // Centre logo vertically in logo zone
+          const logoY = HDR_TOP - sc2.height;
+          currentPage.drawImage(li, { x: ML, y: logoY, width: sc2.width, height: sc2.height });
         }
-      }
-      
-      // Ensure ticketDate is clean and properly formatted
-      if (!ticketDate.match(/^\d{2}\/\d{2}\/\d{4}$/) && ticketDate !== '-') {
-        ticketDate = '-';
-      }
-      
-      // Clean description - remove date/time strings
-      let cleanDescription = String(ticket.equipment_type || ticket.job_type || ticket.description || '-');
-      cleanDescription = cleanDescription
-        .replace(/\d{4}-\d{2}-\d{2}.*GMT.*/g, '')
-        .replace(/Coordinated Universal Time/g, '')
-        .replace(/GMT.*/g, '')
-        .replace(/UTC.*/g, '')
-        .replace(/Mon|Tue|Wed|Thu|Fri|Sat|Sun.*\d{4}/g, '')
-        .replace(/\(.*Universal.*Time.*\)/g, '')
-        .trim() || '-';
-      const cleanDescriptionLines = wrapText(cleanDescription.substring(0, 40), 16);
-      
-      // Truncate and wrap driver name
-      const driverName = (ticket.driver_name || '-').substring(0, 20);
-      const driverLines = wrapText(driverName, 15);
-      
-      // Clean ticket number - remove any date/time strings
-      let ticketNum = String(ticket.ticket_number || '-');
-      ticketNum = ticketNum
-        .replace(/\d{4}-\d{2}-\d{2}.*/g, '')
-        .replace(/GMT.*/g, '')
-        .replace(/UTC.*/g, '')
-        .replace(/Coordinated Universal Time/g, '')
-        .replace(/Mon|Tue|Wed|Thu|Fri|Sat|Sun/g, '')
-        .replace(/\d{4}.*GMT/g, '')
-        .trim() || '-';
-      ticketNum = ticketNum.substring(0, 15);
-      
-      const maxLines = Math.max(cleanDescriptionLines.length, driverLines.length, 1);
-      const cellHeight = Math.max(maxLines * 18 + 12, rowHeight);
-
-      // Draw row data with consistent alignment matching headers
-      xPos = tableStartX + colSpacing;
-      
-      // Date - ensure it's properly formatted (MM/DD/YYYY) - left aligned like header
-      const dateText = ticketDate.match(/^\d{2}\/\d{2}\/\d{4}$/) ? ticketDate : '-';
-      currentPage.drawText(dateText, {
-        x: xPos + 2, // Match header padding
-        y: yPos - 5,
-        size: 9,
-        font: font,
-      });
-      xPos += colWidths[0] + colSpacing;
-      
-      // Ticket # - cleaned and truncated - left aligned like header
-      const ticketNumShort = ticketNum.substring(0, 9);
-      currentPage.drawText(ticketNumShort, {
-        x: xPos + 2, // Match header padding
-        y: yPos - 5,
-        size: 9,
-        font: font,
-      });
-      xPos += colWidths[1] + colSpacing;
-      
-      // Description (wrapped) - left aligned like header
-      cleanDescriptionLines.forEach((line, lineIdx) => {
-        const truncatedLine = line.substring(0, 17);
-        if (truncatedLine && !truncatedLine.match(/Coordinated|Universal|Time|GMT|UTC/)) {
-          currentPage.drawText(truncatedLine, {
-            x: xPos + 2, // Match header padding
-            y: yPos - 5 - (lineIdx * 14),
-            size: 9,
-            font: font,
-          });
-        }
-      });
-      xPos += colWidths[2] + colSpacing;
-      
-      // Driver (wrapped) - left aligned like header
-      driverLines.forEach((line, lineIdx) => {
-        const truncatedLine = line.substring(0, 11);
-        currentPage.drawText(truncatedLine, {
-          x: xPos + 2, // Match header padding
-          y: yPos - 5 - (lineIdx * 14),
-          size: 9,
-          font: font,
-        });
-      });
-      xPos += colWidths[3] + colSpacing;
-      
-      // Subcontractor - left aligned like header
-      const subcontractor = (ticket.subcontractor || '-').substring(0, 15);
-      currentPage.drawText(subcontractor, {
-        x: xPos + 2, // Match header padding
-        y: yPos - 5,
-        size: 9,
-        font: font,
-      });
-      xPos += colWidths[4] + colSpacing;
-      
-      // Qty - right aligned (fits 42px column)
-      const qtyText = parseFloat(ticket.quantity || 0).toFixed(1);
-      const qtyWidth = qtyText.length * 5;
-      currentPage.drawText(qtyText, {
-        x: xPos + colWidths[5] - qtyWidth - 2,
-        y: yPos - 5,
-        size: 9,
-        font: font,
-      });
-      xPos += colWidths[5] + colSpacing;
-      
-      // Rate - right aligned (fits 50px column)
-      const billRate = parseFloat(ticket.bill_rate || ticket.rate || 0);
-      const rateText = `$${billRate.toFixed(2)}`;
-      const rateWidth = rateText.length * 5;
-      currentPage.drawText(rateText, {
-        x: xPos + colWidths[6] - rateWidth - 2,
-        y: yPos - 5,
-        size: 9,
-        font: font,
-      });
-      xPos += colWidths[6] + colSpacing;
-      
-      // Total - right aligned (fits 65px column)
-      const totalText = `$${parseFloat(ticket.total_bill || 0).toFixed(2)}`;
-      const totalWidth = totalText.length * 5;
-      currentPage.drawText(totalText, {
-        x: xPos + colWidths[7] - totalWidth - 2,
-        y: yPos - 5,
-        size: 9,
-        font: font,
-      });
-
-      // Move to next row with proper spacing (use calculated cellHeight)
-      yPos -= cellHeight;
-      
-      // Draw subtle separator line using rectangle
-      if (index < tickets.length - 1) {
-        currentPage.drawRectangle({
-          x: tableStartX,
-          y: yPos + 3,
-          width: actualTableWidth,
-          height: 0.5,
-          color: rgb(0.85, 0.85, 0.85),
-        });
-        yPos -= 5;
-      }
-    });
-
-    // Totals Section (on last page, ensure enough space) with better spacing
-    yPos -= 35;
-    if (yPos < 130) {
-      currentPage = pdfDoc.addPage([612, 792]);
-      yPos = height - 130;
+      } catch (e) { console.error('[PDF] logo:', e.message); }
     }
-    
-    const totalsX = width - 260;
-    const totalsRightX = width - 90;
-    
-    // Subtotal with better spacing
-    currentPage.drawText('Subtotal:', { x: totalsX, y: yPos, size: 11, font });
-    const subtotalText = `$${subtotal.toFixed(2)}`;
-    currentPage.drawText(subtotalText, { x: totalsRightX, y: yPos, size: 11, font });
 
-    yPos -= 22;
-    // GST
-    const companyGstNumber = '818440612RT0001';
-    currentPage.drawText('GST (5%)', { x: totalsX, y: yPos, size: 11, font });
-    currentPage.drawText(`#: ${companyGstNumber}`, { x: totalsX + 55, y: yPos, size: 9, font, color: rgb(0.4, 0.4, 0.4) });
-    const gstText = `$${gst.toFixed(2)}`;
-    currentPage.drawText(gstText, { x: totalsRightX, y: yPos, size: 11, font });
-
-    yPos -= 22;
-    // Draw line above total
-    currentPage.drawRectangle({
-      x: totalsX - 15,
-      y: yPos + 6,
-      width: 220,
-      height: 1.5,
-      color: rgb(0.4, 0.4, 0.4),
-    });
-    
-    yPos -= 12;
-    // Total (bold and colored) with larger font
-    currentPage.drawText('Total:', {
-      x: totalsX,
-      y: yPos,
-      size: 16,
-      font: boldFont,
-      color: primaryColor,
-    });
-    const totalAmountText = `$${total.toFixed(2)}`;
-    currentPage.drawText(totalAmountText, {
-      x: totalsRightX,
-      y: yPos,
-      size: 16,
-      font: boldFont,
-      color: primaryColor,
+    // — Company name (middle column, top of header) —
+    currentPage.drawText((companyProfile.company_name || 'Company').toUpperCase(), {
+      x: INFO_X, y: HDR_TOP, size: 16, font: boldFont, color: C_PRIMARY,
     });
 
-    // Finalize PDF
+    // — Address lines below company name —
+    let infoY = HDR_TOP - 18;
+    if (companyProfile.address) {
+      const addrLineArr = companyProfile.address.split('\n');
+      for (const ln of addrLineArr) {
+        const l = ln.trim().substring(0, 45);
+        if (l) {
+          currentPage.drawText(l, { x: INFO_X, y: infoY, size: 8.5, font, color: C_MID });
+          infoY -= 12;
+        }
+      }
+    }
+    // — Phone —
+    if (companyProfile.phone) {
+      currentPage.drawText(`Tel: ${companyProfile.phone}`, { x: INFO_X, y: infoY, size: 8.5, font, color: C_MID });
+      infoY -= 12;
+    }
+    // — Email —
+    if (companyProfile.email) {
+      currentPage.drawText(companyProfile.email.substring(0, 40), { x: INFO_X, y: infoY, size: 8.5, font, color: C_MID });
+    }
+
+    // — INVOICE (right column) —
+    dR(currentPage, 'INVOICE', COL_R, HDR_TOP, 28, boldFont, C_PRIMARY);
+    dR(currentPage, `#: ${INV_NUM}`, COL_R, HDR_TOP - 30, 9, font, C_DARK);
+    dR(currentPage, `Date: ${INV_DATE}`, COL_R, HDR_TOP - 43, 9, font, C_DARK);
+
+    // — Horizontal separator after header —
+    const SEP1_Y = LOGO_BOT - 10;           // y = 674
+    hRule(currentPage, SEP1_Y);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  SECTION 2 — BILL TO / PERIOD
+    //  Fixed Y zone: SEP1_Y-14  to  SEP1_Y-62
+    // ═══════════════════════════════════════════════════════════════════════════
+    const BILL_Y = SEP1_Y - 16;             // y = 658
+    const HALF_X = ML + Math.round(USABLE_W / 2) + 20; // x = ~295
+
+    // Left: BILL TO
+    currentPage.drawText('BILL TO:', { x: ML, y: BILL_Y, size: 8, font: boldFont, color: C_PRIMARY });
+    currentPage.drawText(String(customerName || '-').substring(0, 40),
+      { x: ML, y: BILL_Y - 15, size: 11, font: boldFont, color: C_DARK });
+    if (customerGstNumber) {
+      currentPage.drawText(`GST Reg #: ${customerGstNumber}`,
+        { x: ML, y: BILL_Y - 29, size: 8.5, font, color: C_MID });
+    }
+
+    // Right: PERIOD
+    currentPage.drawText('PERIOD:', { x: HALF_X, y: BILL_Y, size: 8, font: boldFont, color: C_PRIMARY });
+    currentPage.drawText(`${fmtL(startDate)}  –  ${fmtL(endDate)}`,
+      { x: HALF_X, y: BILL_Y - 15, size: 9.5, font, color: C_DARK });
+
+    // Separator above table
+    const SEP2_Y = BILL_Y - 46;             // y = 612
+    hRule(currentPage, SEP2_Y);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  SECTION 3 — TABLE
+    //  Columns (sum=504; gaps=14; total=518 ≤ USABLE_W=532 ✓)
+    //  Date|Ticket#|Description|Driver|Subcontractor|Qty|Rate|Total
+    //   62 |  58   |    108    |  64  |     62      | 34| 46 |  70
+    // ═══════════════════════════════════════════════════════════════════════════
+    const CW = [62, 58, 108, 64, 62, 34, 46, 70]; // col widths
+    const CGP = 2;                                   // gap between cols
+    const TW = CW.reduce((a, b) => a + b, 0) + CGP * (CW.length - 1); // 518
+    const TBL_X = ML;
+    const HDR_H = 22;
+
+    let curY = SEP2_Y - 14;                 // y = 598
+
+    // Draw table header row
+    const drawTblHdr = (pg, y) => {
+      pg.drawRectangle({ x: TBL_X, y: y - HDR_H + 6, width: TW, height: HDR_H, color: C_PRIMARY });
+      const hdrs = ['Date', 'Ticket #', 'Description', 'Driver', 'Subcontractor', 'Qty', 'Rate', 'Total'];
+      let cx = TBL_X;
+      hdrs.forEach((h, i) => {
+        const isNum = i >= 5;
+        const tw2 = boldFont.widthOfTextAtSize(h, 8);
+        // num cols: right-aligned within cell; text cols: left-padded 3px
+        pg.drawText(h, {
+          x: isNum ? cx + CW[i] - tw2 - 1 : cx + 3,
+          y: y - 14, size: 8, font: boldFont, color: C_WHITE,
+        });
+        cx += CW[i] + CGP;
+      });
+      return y - HDR_H - 2;
+    };
+
+    curY = drawTblHdr(currentPage, curY);
+
+    // — Data rows —
+    tickets.forEach((ticket, idx) => {
+      if (curY < 120) {
+        currentPage = pdfDoc.addPage([PG_W, PG_H]);
+        curY = drawTblHdr(currentPage, PG_H - 50);
+      }
+
+      const tDate = fmtS(ticket.date);
+      let desc = String(ticket.equipment_type || ticket.job_type || ticket.description || '-')
+        .replace(/\d{4}-\d{2}-\d{2}.*?(GMT|UTC).*/gi, '')
+        .replace(/Coordinated Universal Time/gi, '')
+        .replace(/(GMT|UTC).*/gi, '').trim() || '-';
+      const dLines = wrap(desc.substring(0, 45), 18);
+      const drLines = wrap((ticket.driver_name || '-').substring(0, 20), 12);
+      let tktNum = String(ticket.ticket_number || '-')
+        .replace(/\d{4}-\d{2}-\d{2}.*/g, '').replace(/(GMT|UTC).*/gi, '')
+        .trim().substring(0, 12) || '-';
+      const subStr = (ticket.subcontractor || '-').substring(0, 12);
+
+      const maxLines = Math.max(dLines.length, drLines.length, 1);
+      const ROW_H = Math.max(maxLines * 13 + 9, 22);
+
+      // Alternating row background
+      if (idx % 2 === 0) {
+        currentPage.drawRectangle({ x: TBL_X, y: curY - ROW_H + 6, width: TW, height: ROW_H, color: C_LIGHT });
+      }
+
+      const TEXT_Y = curY - 5;
+      let cx = TBL_X;
+
+      // Date
+      currentPage.drawText(tDate, { x: cx + 2, y: TEXT_Y, size: 8, font, color: C_DARK }); cx += CW[0] + CGP;
+      // Ticket#
+      currentPage.drawText(tktNum, { x: cx + 2, y: TEXT_Y, size: 8, font, color: C_DARK }); cx += CW[1] + CGP;
+      // Description (multi-line)
+      dLines.forEach((l, li) =>
+        currentPage.drawText(l, { x: cx + 2, y: TEXT_Y - li * 13, size: 8, font, color: C_DARK }));
+      cx += CW[2] + CGP;
+      // Driver (multi-line)
+      drLines.forEach((l, li) =>
+        currentPage.drawText(l, { x: cx + 2, y: TEXT_Y - li * 13, size: 8, font, color: C_DARK }));
+      cx += CW[3] + CGP;
+      // Subcontractor
+      currentPage.drawText(subStr, { x: cx + 2, y: TEXT_Y, size: 8, font, color: C_DARK }); cx += CW[4] + CGP;
+      // Qty (right)
+      dR(currentPage, parseFloat(ticket.quantity || 0).toFixed(1), cx + CW[5], TEXT_Y, 8, font, C_DARK); cx += CW[5] + CGP;
+      // Rate (right)
+      dR(currentPage, `$${parseFloat(ticket.bill_rate || ticket.rate || 0).toFixed(2)}`, cx + CW[6], TEXT_Y, 8, font, C_DARK); cx += CW[6] + CGP;
+      // Total (right, bold green)
+      dR(currentPage, `$${parseFloat(ticket.total_bill || 0).toFixed(2)}`, cx + CW[7], TEXT_Y, 8, boldFont, C_PRIMARY);
+
+      curY -= ROW_H;
+      // row separator
+      if (idx < tickets.length - 1) {
+        currentPage.drawRectangle({ x: TBL_X, y: curY + 3, width: TW, height: 0.3, color: rgb(0.82, 0.82, 0.82) });
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  SECTION 4 — TOTALS
+    // ═══════════════════════════════════════════════════════════════════════════
+    curY -= 18;
+    if (curY < 100) { currentPage = pdfDoc.addPage([PG_W, PG_H]); curY = PG_H - 80; }
+
+    const TOT_LBL_X = COL_R - 160;
+
+    currentPage.drawText('Subtotal:', { x: TOT_LBL_X, y: curY, size: 9.5, font, color: C_DARK });
+    dR(currentPage, `$${subtotal.toFixed(2)}`, COL_R, curY, 9.5, font, C_DARK);
+    curY -= 16;
+    currentPage.drawText('GST (5%):', { x: TOT_LBL_X, y: curY, size: 9.5, font, color: C_DARK });
+    dR(currentPage, `$${gst.toFixed(2)}`, COL_R, curY, 9.5, font, C_DARK);
+    curY -= 6;
+    currentPage.drawRectangle({ x: TOT_LBL_X - 6, y: curY, width: COL_R - TOT_LBL_X + 6, height: 0.8, color: C_PRIMARY });
+    curY -= 14;
+    currentPage.drawText('TOTAL:', { x: TOT_LBL_X, y: curY, size: 13, font: boldFont, color: C_PRIMARY });
+    dR(currentPage, `$${total.toFixed(2)}`, COL_R, curY, 13, boldFont, C_PRIMARY);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  SECTION 5 — FOOTER
+    // ═══════════════════════════════════════════════════════════════════════════
+    hRule(currentPage, 32);
+    const ftext = `${companyProfile.company_name || 'Company'}  ·  ${INV_NUM}  ·  ${INV_DATE}`;
+    const ftw2 = font.widthOfTextAtSize(ftext, 7.5);
+    currentPage.drawText(ftext, { x: (PG_W - ftw2) / 2, y: 20, size: 7.5, font, color: C_MID });
+
+    // ── Finalize & send PDF ──────────────────────────────────────────────────
     console.log('[PDF Download] Saving PDF document...');
     const pdfBytesUint8 = await pdfDoc.save();
 
@@ -1535,7 +1432,7 @@ const downloadInvoice = async (req, res) => {
     // Validate PDF header (should start with %PDF)
     const pdfHeader = pdfBytes.slice(0, 4).toString('utf8');
     console.log(`[PDF Download] PDF header check: "${pdfHeader}" (expected: "%PDF")`);
-    
+
     if (pdfHeader !== '%PDF') {
       console.error(`[PDF Download] Invalid PDF header: "${pdfHeader}" (hex: ${pdfBytes.slice(0, 4).toString('hex')})`);
       console.error(`[PDF Download] First 20 bytes: ${pdfBytes.slice(0, 20).toString('hex')}`);
@@ -1671,18 +1568,34 @@ const sendInvoiceEmailHandler = async (req, res) => {
       });
     }
 
-    // Generate invoice number
-    const invoiceNumber = `INV-${customerId}-${Date.now().toString().slice(-6)}`;
+    // Generate invoice number (deterministic: based on customerId + date range)
+    const dateHash = (startDate + endDate).replace(/-/g, '');
+    const invoiceNumber = `INV-${customerId}-${dateHash.slice(-8)}`;
     const sanitizedCustomerName = customerName.replace(/[^a-zA-Z0-9]/g, '_');
     const filename = `Invoice-${sanitizedCustomerName}-${startDate}-${endDate}.pdf`;
+
+    // Calculate totals from tickets
+    const subtotal = tickets.reduce((sum, t) => sum + parseFloat(t.total_bill || 0), 0);
+    const gst = subtotal * 0.05;
+    const total = subtotal + gst;
+
+    // Format dates for email body — "20 February 2026" (no time)
+    const fmtEmailDate = (d) => {
+      if (!d) return d;
+      const [y, m, day] = String(d).split('T')[0].split('-');
+      const dateObj = new Date(Number(y), Number(m) - 1, Number(day));
+      if (isNaN(dateObj.getTime())) return d;
+      return dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    };
 
     // Send email
     const emailResult = await sendInvoiceEmail({
       to: recipientEmail,
       customerName,
       invoiceNumber,
-      startDate,
-      endDate,
+      startDate: fmtEmailDate(startDate),
+      endDate: fmtEmailDate(endDate),
+      total,
       pdfBuffer,
       filename,
     });
@@ -1697,11 +1610,12 @@ const sendInvoiceEmailHandler = async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'Invoice email sent successfully',
+      message: `Invoice email sent successfully to ${recipientEmail}`,
       data: {
         messageId: emailResult.messageId,
         recipientEmail,
         invoiceNumber,
+        total,
       }
     });
 
@@ -1728,6 +1642,19 @@ const generateInvoicePDFBuffer = async ({
   tickets,
 }) => {
   try {
+    // Fetch company profile settings
+    const [companySettings] = await pool.execute(
+      'SELECT company_name, company_logo, address, phone, email, website FROM company_settings LIMIT 1'
+    );
+    const companyProfile = companySettings.length > 0 ? companySettings[0] : {
+      company_name: 'Noor Trucking Inc.',
+      email: 'info@noortruckinginc.com',
+      address: null,
+      phone: null,
+      website: null,
+      company_logo: null
+    };
+
     // Calculate totals
     const subtotal = tickets.reduce((sum, ticket) => sum + parseFloat(ticket.total_bill || 0), 0);
     const gst = subtotal * 0.05;
@@ -1745,6 +1672,86 @@ const generateInvoicePDFBuffer = async ({
     const margin = 50;
     const topMargin = 50;
     let yPos = height - topMargin;
+
+    // --- COMPANY HEADER SECTION ---
+    if (companyProfile.company_logo) {
+      try {
+        const logoPath = path.join(__dirname, '..', companyProfile.company_logo);
+        if (fs.existsSync(logoPath)) {
+          const logoBytes = fs.readFileSync(logoPath);
+          let logoImage;
+          if (companyProfile.company_logo.toLowerCase().endsWith('.png')) {
+            logoImage = await pdfDoc.embedPng(logoBytes);
+          } else if (companyProfile.company_logo.toLowerCase().endsWith('.jpg') || companyProfile.company_logo.toLowerCase().endsWith('.jpeg')) {
+            logoImage = await pdfDoc.embedJpg(logoBytes);
+          }
+
+          if (logoImage) {
+            const logoDims = logoImage.scale(0.5);
+            const maxWidth = 100;
+            const maxHeight = 60;
+            const scale = Math.min(maxWidth / logoDims.width, maxHeight / logoDims.height, 0.5);
+            const scaled = logoImage.scale(scale);
+
+            currentPage.drawImage(logoImage, {
+              x: margin,
+              y: yPos - scaled.height,
+              width: scaled.width,
+              height: scaled.height,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[PDF Gen] Error embedding logo:', err);
+      }
+    }
+
+    const headerInfoX = companyProfile.company_logo ? margin + 110 : margin;
+    let headerY = yPos;
+
+    currentPage.drawText(companyProfile.company_name.toUpperCase(), {
+      x: headerInfoX,
+      y: headerY,
+      size: 18,
+      font: boldFont,
+      color: primaryColor,
+    });
+    headerY -= 18;
+
+    if (companyProfile.address) {
+      const addressLines = companyProfile.address.split('\n');
+      addressLines.forEach(line => {
+        currentPage.drawText(line, { x: headerInfoX, y: headerY, size: 9, font });
+        headerY -= 12;
+      });
+    }
+
+    let contactInfo = [];
+    if (companyProfile.phone) contactInfo.push(`Phone: ${companyProfile.phone}`);
+    if (companyProfile.email) contactInfo.push(`Email: ${companyProfile.email}`);
+    if (companyProfile.website) contactInfo.push(`Web: ${companyProfile.website}`);
+
+    if (contactInfo.length > 0) {
+      currentPage.drawText(contactInfo.join('  |  '), {
+        x: headerInfoX,
+        y: headerY,
+        size: 8,
+        font: font,
+        color: rgb(0.3, 0.3, 0.3)
+      });
+      headerY -= 12;
+    }
+
+    yPos = Math.min(headerY - 20, height - 120);
+
+    // Separator
+    currentPage.drawRectangle({
+      x: margin,
+      y: yPos + 10,
+      width: width - (margin * 2),
+      height: 1,
+      color: primaryColor
+    });
 
     // Helper function to wrap text
     const wrapText = (text, maxChars) => {
@@ -1777,68 +1784,82 @@ const generateInvoicePDFBuffer = async ({
     currentPage.drawText('INVOICE', {
       x: margin,
       y: yPos,
-      size: 32,
+      size: 24,
       font: boldFont,
       color: primaryColor,
     });
 
     const invoiceNumber = `INV-${customerId}-${Date.now().toString().slice(-6)}`;
     const today = new Date();
-    const invoiceDate = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}/${today.getFullYear()}`;
-    yPos -= 35;
-    currentPage.drawText(`Invoice #: ${invoiceNumber}`, { x: margin, y: yPos, size: 11, font });
-    yPos -= 18;
-    currentPage.drawText(`Date of Issue: ${invoiceDate}`, { x: margin, y: yPos, size: 11, font });
+    const invoiceDate = today.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    yPos -= 25;
+    currentPage.drawText(`Invoice #: ${invoiceNumber}`, { x: margin, y: yPos, size: 10, font });
+    yPos -= 14;
+    currentPage.drawText(`Date of Issue: ${invoiceDate}`, { x: margin, y: yPos, size: 10, font });
 
     // Bill To with better spacing
     const billToX = width - 260;
-    yPos = height - topMargin;
-    currentPage.drawText('Bill To:', {
+    let billToY = yPos + 35;
+    currentPage.drawText('BILL TO:', {
       x: billToX,
-      y: yPos,
-      size: 13,
+      y: billToY,
+      size: 11,
       font: boldFont,
       color: primaryColor,
     });
-    yPos -= 20;
+    billToY -= 16;
     const customerNameLines = wrapText(customerName, 25);
     customerNameLines.forEach(line => {
-      currentPage.drawText(line, { x: billToX, y: yPos, size: 11, font });
-      yPos -= 16;
+      currentPage.drawText(line, { x: billToX, y: billToY, size: 10, font });
+      billToY -= 14;
     });
+    // Format period date — "20 February 2026" (no time)
     const formatPeriodDate = (dateStr) => {
       if (!dateStr) return '';
-      const date = new Date(dateStr);
+      const [year, month, day] = String(dateStr).split('T')[0].split('-');
+      const date = new Date(Number(year), Number(month) - 1, Number(day));
       if (isNaN(date.getTime())) return dateStr;
-      return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
+      return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    };
+
+    // Format ticket row date — "20 Feb 2026"
+    const formatTicketDate = (dateStr) => {
+      if (!dateStr) return '-';
+      const [year, month, day] = String(dateStr).split('T')[0].split('-');
+      const date = new Date(Number(year), Number(month) - 1, Number(day));
+      if (isNaN(date.getTime())) return '-';
+      return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     };
     currentPage.drawText(`Period: ${formatPeriodDate(startDate)} to ${formatPeriodDate(endDate)}`, {
       x: billToX,
-      y: yPos,
-      size: 10,
+      y: billToY,
+      size: 9,
       font: font,
-      color: rgb(0.5, 0.5, 0.5),
+      color: rgb(0.4, 0.4, 0.4),
     });
 
+    // Reset yPos for the table
+    yPos = Math.min(yPos - 20, billToY - 20);
+
     // Table Header
-    yPos = height - 200;
+    yPos -= 30;
     const rowHeight = 26;
-    
+
     // Optimized column widths to fit all 8 columns properly on page
     // [Date, Ticket #, Description, Driver, Subcontractor, Qty, Rate, Total]
     // Page width: 612px, margins: 50px each side = 512px available
     // Optimized widths: 60+58+120+70+85+42+50+65 = 550px + 21px spacing = 571px
     const colWidths = [60, 58, 120, 70, 85, 42, 50, 65];
     const colSpacing = 3;
-    
+
     // Calculate actual table width based on column widths
     const totalColWidths = colWidths.reduce((sum, width) => sum + width, 0);
     const totalSpacing = colSpacing * (colWidths.length + 1); // spacing before first, between, and after last
     const actualTableWidth = totalColWidths + totalSpacing;
-    
+
     // Center the table on the page
     const tableStartX = (width - actualTableWidth) / 2;
-    
+
     currentPage.drawRectangle({
       x: tableStartX,
       y: yPos - 22,
@@ -1846,7 +1867,7 @@ const generateInvoicePDFBuffer = async ({
       height: rowHeight,
       color: primaryColor,
     });
-    
+
     // Header labels - use full text, columns are wide enough
     const headerLabels = ['Date', 'Ticket #:', 'Description', 'Driver', 'Subcontractor', 'Qty', 'Rate', 'Total'];
     let xPos = tableStartX + colSpacing;
@@ -1890,59 +1911,18 @@ const generateInvoicePDFBuffer = async ({
         yPos -= rowHeight + 8;
       }
 
-      // Format date properly (MM/DD/YYYY format)
+      // Format date — "20 Feb 2026" (no time)
       let ticketDate = '-';
       if (ticket.date) {
         try {
-          let dateObj = null;
-          
-          // Check if it's already a Date object
-          if (ticket.date instanceof Date) {
-            dateObj = ticket.date;
-          } else {
-            // Convert to string and check format
-            let dateStr = String(ticket.date);
-            
-            // Remove any timezone or GMT strings that might be in the date string
-            dateStr = dateStr.split('GMT')[0].split('UTC')[0].trim();
-            
-            // Handle MySQL date format (YYYY-MM-DD) - most common case
-            if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-              // MySQL date format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
-              const dateParts = dateStr.split('T')[0].split(' ')[0].split('-');
-              if (dateParts.length === 3) {
-                const [year, month, day] = dateParts;
-                ticketDate = `${month}/${day}/${year}`;
-              } else {
-                dateObj = new Date(dateStr);
-              }
-            } else if (dateStr.match(/^\d{2}\/\d{2}\/\d{4}/)) {
-              // Already in MM/DD/YYYY format
-              ticketDate = dateStr.substring(0, 10);
-            } else {
-              // Try parsing as Date
-              dateObj = new Date(dateStr);
-            }
-          }
-          
-          // Format Date object to MM/DD/YYYY if not already formatted
-          if (dateObj && !isNaN(dateObj.getTime()) && ticketDate === '-') {
-            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const day = String(dateObj.getDate()).padStart(2, '0');
-            const year = dateObj.getFullYear();
-            ticketDate = `${month}/${day}/${year}`;
-          }
+          const rawDate = String(ticket.date).split('T')[0].split(' ')[0];
+          ticketDate = formatTicketDate(rawDate);
         } catch (e) {
-          console.error('[PDF Buffer] Date formatting error:', e, 'Date value:', ticket.date, 'Type:', typeof ticket.date);
+          console.error('[PDF Buffer] Date error:', e);
           ticketDate = '-';
         }
       }
-      
-      // Ensure ticketDate is clean and properly formatted
-      if (!ticketDate.match(/^\d{2}\/\d{2}\/\d{4}$/) && ticketDate !== '-') {
-        ticketDate = '-';
-      }
-      
+
       // Clean ticket number - remove any date/time strings
       let ticketNum = String(ticket.ticket_number || '-');
       ticketNum = ticketNum
@@ -1954,7 +1934,7 @@ const generateInvoicePDFBuffer = async ({
         .replace(/\d{4}.*GMT/g, '')
         .trim() || '-';
       ticketNum = ticketNum.substring(0, 15);
-      
+
       // Clean description - remove date/time strings
       let cleanDescription = String(ticket.equipment_type || ticket.job_type || ticket.description || '-');
       cleanDescription = cleanDescription
@@ -1966,26 +1946,26 @@ const generateInvoicePDFBuffer = async ({
         .replace(/\(.*Universal.*Time.*\)/g, '')
         .trim() || '-';
       const cleanDescriptionLines = wrapText(cleanDescription.substring(0, 35), 18);
-      
+
       // Truncate and wrap driver name
       const driverName = (ticket.driver_name || '-').substring(0, 20);
       const driverLines = wrapText(driverName, 12);
-      
+
       const maxLines = Math.max(cleanDescriptionLines.length, driverLines.length, 1);
       const cellHeight = Math.max(maxLines * 14 + 8, rowHeight);
 
       xPos = tableStartX + colSpacing;
-      
+
       // Date - ensure it's properly formatted (MM/DD/YYYY) - left aligned like header
       const dateText = ticketDate.match(/^\d{2}\/\d{2}\/\d{4}$/) ? ticketDate : '-';
       currentPage.drawText(dateText, { x: xPos + 2, y: yPos - 5, size: 9, font });
       xPos += colWidths[0] + colSpacing;
-      
+
       // Ticket # - cleaned and truncated - left aligned like header
       const ticketNumShort = ticketNum.substring(0, 9);
       currentPage.drawText(ticketNumShort, { x: xPos + 2, y: yPos - 5, size: 9, font });
       xPos += colWidths[1] + colSpacing;
-      
+
       // Description (wrapped) - left aligned like header
       cleanDescriptionLines.forEach((line, lineIdx) => {
         const truncatedLine = line.substring(0, 17);
@@ -1994,40 +1974,40 @@ const generateInvoicePDFBuffer = async ({
         }
       });
       xPos += colWidths[2] + colSpacing;
-      
+
       // Driver (wrapped) - left aligned like header
       driverLines.forEach((line, lineIdx) => {
         const truncatedLine = line.substring(0, 11);
         currentPage.drawText(truncatedLine, { x: xPos + 2, y: yPos - 5 - (lineIdx * 14), size: 9, font });
       });
       xPos += colWidths[3] + colSpacing;
-      
+
       // Subcontractor - left aligned like header
       const subcontractor = (ticket.subcontractor || '-').substring(0, 15);
       currentPage.drawText(subcontractor, { x: xPos + 2, y: yPos - 5, size: 9, font });
       xPos += colWidths[4] + colSpacing;
-      
+
       // Qty - right aligned (fits 42px column)
       const qtyText = parseFloat(ticket.quantity || 0).toFixed(1);
       const qtyWidth = qtyText.length * 5;
       currentPage.drawText(qtyText, { x: xPos + colWidths[5] - qtyWidth - 2, y: yPos - 5, size: 9, font });
       xPos += colWidths[5] + colSpacing;
-      
+
       // Rate - right aligned (fits 50px column)
       const billRate = parseFloat(ticket.bill_rate || ticket.rate || 0);
       const rateText = `$${billRate.toFixed(2)}`;
       const rateWidth = rateText.length * 5;
       currentPage.drawText(rateText, { x: xPos + colWidths[6] - rateWidth - 2, y: yPos - 5, size: 9, font });
       xPos += colWidths[6] + colSpacing;
-      
+
       // Total - right aligned (fits 65px column)
       const totalText = `$${parseFloat(ticket.total_bill || 0).toFixed(2)}`;
       const totalWidth = totalText.length * 5;
       currentPage.drawText(totalText, { x: xPos + colWidths[7] - totalWidth - 2, y: yPos - 5, size: 9, font });
-      
+
       // Move to next row with proper spacing
       yPos -= cellHeight;
-      
+
       if (index < tickets.length - 1) {
         currentPage.drawRectangle({
           x: tableStartX,
@@ -2048,20 +2028,20 @@ const generateInvoicePDFBuffer = async ({
     }
     const totalsX = width - 260;
     const totalsRightX = width - 90;
-    
+
     // Subtotal
     currentPage.drawText('Subtotal:', { x: totalsX, y: yPos, size: 11, font });
     currentPage.drawText(`$${subtotal.toFixed(2)}`, { x: totalsRightX, y: yPos, size: 11, font });
     yPos -= 22;
-    
+
     // GST
     const companyGstNumber = '818440612RT0001';
     currentPage.drawText('GST (5%)', { x: totalsX, y: yPos, size: 11, font });
     currentPage.drawText(`#: ${companyGstNumber}`, { x: totalsX + 55, y: yPos, size: 9, font, color: rgb(0.4, 0.4, 0.4) });
     currentPage.drawText(`$${gst.toFixed(2)}`, { x: totalsRightX, y: yPos, size: 11, font });
-    
+
     yPos -= 22;
-    
+
     // Draw line above total
     currentPage.drawRectangle({
       x: totalsX - 15,
@@ -2071,7 +2051,7 @@ const generateInvoicePDFBuffer = async ({
       color: rgb(0.4, 0.4, 0.4),
     });
     yPos -= 12;
-    
+
     // Total (bold and colored) with larger font
     currentPage.drawText('Total:', { x: totalsX, y: yPos, size: 16, font: boldFont, color: primaryColor });
     currentPage.drawText(`$${total.toFixed(2)}`, { x: totalsRightX, y: yPos, size: 16, font: boldFont, color: primaryColor });
@@ -2099,7 +2079,7 @@ const generateSettlement = async (req, res) => {
         missing: 'driverId'
       });
     }
-    
+
     if (!startDate) {
       return res.status(400).json({
         success: false,
@@ -2107,7 +2087,7 @@ const generateSettlement = async (req, res) => {
         missing: 'startDate'
       });
     }
-    
+
     if (!endDate) {
       return res.status(400).json({
         success: false,
@@ -2115,7 +2095,7 @@ const generateSettlement = async (req, res) => {
         missing: 'endDate'
       });
     }
-    
+
     // Validate date format
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRegex.test(startDate)) {
@@ -2125,7 +2105,7 @@ const generateSettlement = async (req, res) => {
         received: startDate
       });
     }
-    
+
     if (!dateRegex.test(endDate)) {
       return res.status(400).json({
         success: false,
@@ -2258,7 +2238,7 @@ const downloadSettlement = async (req, res) => {
     const primaryColor = rgb(0.16, 0.36, 0.32);
     const margin = 50;
     const topMargin = 50;
-    
+
     let grandTotalPay = 0;
     const customerEntries = Object.entries(customerGroups);
 
@@ -2273,7 +2253,7 @@ const downloadSettlement = async (req, res) => {
     // Each customer gets their own page (like invoice)
     for (let custIndex = 0; custIndex < customerEntries.length; custIndex++) {
       const [customerName, custTickets] = customerEntries[custIndex];
-      
+
       // New page for each customer
       let currentPage = pdfDoc.addPage([612, 792]);
       const pageSize = currentPage.getSize();
@@ -2366,7 +2346,7 @@ const downloadSettlement = async (req, res) => {
         if (yPos < 150) {
           currentPage = pdfDoc.addPage([612, 792]);
           yPos = height - 50;
-          
+
           // Redraw header
           currentPage.drawRectangle({
             x: tableStartX,
@@ -2497,7 +2477,7 @@ const downloadSettlement = async (req, res) => {
       height: 50,
       color: rgb(0.96, 0.96, 0.96),
     });
-    
+
     finalPage.drawText('Total Pay to Driver:', {
       x: margin + 20,
       y: finalY + 5,
@@ -2505,7 +2485,7 @@ const downloadSettlement = async (req, res) => {
       font: boldFont,
       color: primaryColor,
     });
-    
+
     finalPage.drawText(`$${grandTotalPay.toFixed(2)}`, {
       x: finalWidth - margin - 120,
       y: finalY + 5,
@@ -2747,8 +2727,8 @@ const createTruck = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'Truck added successfully',
-      data: { 
-        id: result.insertId, 
+      data: {
+        id: result.insertId,
         truck_number: truck_number.trim(),
         truck_type: existingColumns.includes('truck_type') ? truck_type : null,
         assigned_customer_id: existingColumns.includes('assigned_customer_id') ? (assigned_customer_id || null) : null,
