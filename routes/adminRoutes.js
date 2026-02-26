@@ -119,8 +119,11 @@ const logoStorage = multer.diskStorage({
 });
 
 const logoUpload = multer({
-  storage: logoStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, 'uploads/tmp'), // staging area
+    filename: (req, file, cb) => cb(null, `logo_${Date.now()}${path.extname(file.originalname)}`)
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 }, // increased to 10MB
   fileFilter: (req, file, cb) => {
     const allowed = /jpeg|jpg|png|gif|webp/;
     const extOk = allowed.test(path.extname(file.originalname).toLowerCase());
@@ -135,29 +138,15 @@ router.get('/system-settings', systemSettingsController.getSystemSettings);
 router.put('/system-settings', systemSettingsController.updateSystemSettings);
 
 // Logo upload route — POST /admin/upload-logo
-// Wrap multer manually so errors return clean JSON (not HTML 500)
 router.post('/upload-logo', (req, res) => {
   logoUpload.single('logo')(req, res, (err) => {
     if (err) {
-      // Multer error (file type / size / etc.)
-      console.error('[Logo Upload] Multer error:', err.message);
       if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ success: false, message: 'File too large. Maximum allowed size is 5MB.' });
+        return res.status(400).json({ success: false, message: 'File too large. Maximum allowed size is 10MB.' });
       }
       return res.status(400).json({ success: false, message: err.message || 'File upload error' });
     }
-
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file received. Please select an image file.' });
-    }
-
-    const logoUrl = `/uploads/logos/${req.file.filename}`;
-    console.log('[Logo Upload] ✅ Logo saved:', req.file.path, '→ public URL:', logoUrl);
-    return res.json({
-      success: true,
-      message: 'Logo uploaded successfully',
-      data: { logo_url: logoUrl }
-    });
+    adminController.uploadLogo(req, res);
   });
 });
 

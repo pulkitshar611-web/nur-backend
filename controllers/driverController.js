@@ -34,7 +34,7 @@ const getDashboard = async (req, res) => {
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay()); // Sunday
     startOfWeek.setHours(0, 0, 0, 0);
-    
+
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
     endOfWeek.setHours(23, 59, 59, 999);
@@ -171,7 +171,7 @@ const createTicket = async (req, res) => {
 
     // Handle multiple customers (comma-separated)
     const customerNames = customer.split(',').map(name => name.trim()).filter(name => name.length > 0);
-    
+
     if (customerNames.length === 0) {
       return res.status(400).json({
         success: false,
@@ -179,10 +179,17 @@ const createTicket = async (req, res) => {
       });
     }
 
+    // Resolve customer ID — use first customer for FK (multi-customer stored as text too)
+    const [primaryCustomer] = await pool.execute(
+      'SELECT id, default_bill_rate FROM customers WHERE name = ? AND deleted_at IS NULL LIMIT 1',
+      [customerNames[0]]
+    );
+    const primaryCustomerId = primaryCustomer.length > 0 ? primaryCustomer[0].id : null;
+
     // Get bill rates for all customers (company-scoped)
     const placeholders = customerNames.map(() => '?').join(',');
     const [customersData] = await pool.execute(
-      `SELECT default_bill_rate FROM customers WHERE name IN (${placeholders})`,
+      `SELECT default_bill_rate FROM customers WHERE name IN (${placeholders}) AND deleted_at IS NULL`,
       [...customerNames]
     );
 
@@ -199,7 +206,7 @@ const createTicket = async (req, res) => {
     const totalBill = parseFloat(quantity) * parseFloat(billRate);
     const totalPay = parseFloat(quantity) * parseFloat(payRate);
 
-    // Store customer names as comma-separated string
+    // Store customer names as comma-separated string (for display)
     const customerString = customerNames.join(', ');
 
     // Handle photo upload
@@ -208,12 +215,15 @@ const createTicket = async (req, res) => {
       photoPath = `/uploads/${req.file.filename}`;
     }
 
-    // Insert ticket
+    // Insert ticket — store BOTH customer text AND customer_id FK
     const [result] = await pool.execute(
       `INSERT INTO tickets 
-       (driver_id, date, truck_number, customer, equipment_type, ticket_number, quantity, photo_path, bill_rate, pay_rate, total_bill, total_pay, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')`,
-      [actualDriverId, date, truck_number, customerString, equipment_type, ticket_number, quantity, photoPath, billRate, payRate, totalBill, totalPay]
+       (driver_id, customer_id, date, truck_number, customer, equipment_type,
+        ticket_number, quantity, photo_path, bill_rate, pay_rate, total_bill, total_pay, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')`,
+      [actualDriverId, primaryCustomerId, date, truck_number, customerString,
+        equipment_type, ticket_number, quantity, photoPath,
+        billRate, payRate, totalBill, totalPay]
     );
 
     return res.status(201).json({
@@ -338,7 +348,7 @@ const getMyPay = async (req, res) => {
     // Calculate totals
     const totalHours = tickets.reduce((sum, ticket) => sum + parseFloat(ticket.hours || 0), 0);
     const grossPay = tickets.reduce((sum, ticket) => sum + parseFloat(ticket.amount || 0), 0);
-    
+
     // Determine status (all approved = "Up-to-date", otherwise "Pending")
     const allApproved = tickets.every(ticket => ticket.status === 'Approved');
     const status = allApproved ? 'Up-to-date' : 'Pending';
@@ -408,12 +418,12 @@ const getCustomers = async (req, res) => {
 
     const actualDriverId = drivers[0].id;
 
-    // Get driver-specific customers, or all customers if none assigned
+    // Get driver-specific customers (active only, not soft-deleted)
     const [driverCustomers] = await pool.execute(
       `SELECT c.id, c.name 
        FROM customers c
        INNER JOIN driver_customers dc ON c.id = dc.customer_id
-       WHERE dc.driver_id = ?
+       WHERE dc.driver_id = ? AND c.deleted_at IS NULL
        ORDER BY c.name ASC`,
       [actualDriverId]
     );
@@ -425,9 +435,9 @@ const getCustomers = async (req, res) => {
         data: driverCustomers
       });
     } else {
-      // Return all customers if driver has no specific customers assigned
+      // Return all active customers if driver has no specific customers assigned
       const [allCustomers] = await pool.execute(
-        'SELECT id, name FROM customers ORDER BY name ASC'
+        'SELECT id, name FROM customers WHERE deleted_at IS NULL ORDER BY name ASC'
       );
       return res.json({
         success: true,
@@ -707,7 +717,7 @@ const addTruck = async (req, res) => {
         'SELECT id FROM truck_master WHERE truck_number = ?',
         [truck_number.trim()]
       );
-      
+
       if (masterCheck.length === 0) {
         await pool.execute(
           'INSERT INTO truck_master (truck_number, status) VALUES (?, ?)',
@@ -726,9 +736,9 @@ const addTruck = async (req, res) => {
        AND TABLE_NAME = 'trucks' 
        AND COLUMN_NAME = 'status'`
     );
-    
+
     const hasStatusColumn = columns.length > 0;
-    
+
     // Add to trucks table (with or without status column)
     let result;
     if (hasStatusColumn) {
@@ -854,22 +864,23 @@ const getTrucks = async (req, res) => {
        AND TABLE_NAME = 'trucks' 
        AND COLUMN_NAME = 'status'`
     );
-    
+
     const hasStatusColumn = columns.length > 0;
-    
+
     // Build query based on whether status column exists
     let query;
     if (hasStatusColumn) {
       query = `SELECT DISTINCT id, truck_number 
                FROM trucks
-               WHERE status = "Active"
+               WHERE status = 'Active' AND deleted_at IS NULL
                ORDER BY truck_number ASC`;
     } else {
       query = `SELECT DISTINCT id, truck_number 
                FROM trucks
+               WHERE deleted_at IS NULL
                ORDER BY truck_number ASC`;
     }
-    
+
     let [trucks] = await pool.execute(query);
 
     // If no trucks found in trucks table, try truck_master table (if it exists)

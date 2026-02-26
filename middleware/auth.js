@@ -14,7 +14,7 @@ const authenticate = async (req, res, next) => {
   try {
     // Get token from header
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
         success: false,
@@ -29,7 +29,7 @@ const authenticate = async (req, res, next) => {
 
     // Get user from database to ensure they still exist
     const [users] = await pool.execute(
-      'SELECT id, email, role, company_id FROM users WHERE id = ?',
+      'SELECT id, email, role, company_id FROM users WHERE id = ? AND deleted_at IS NULL',
       [decoded.userId]
     );
 

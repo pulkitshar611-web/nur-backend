@@ -35,13 +35,13 @@ const getSystemSettings = async (req, res) => {
       // Create default settings if none exist
       await pool.execute(
         'INSERT INTO company_settings (company_name, email) VALUES (?, ?)',
-        ['Noor Trucking Inc.', 'info@noortruckinginc.com']
+        ['Noor Trucking Inc.', 'accounting@noortruckinginc.com']
       );
       return res.json({
         success: true,
         data: {
           company_name: 'Noor Trucking Inc.',
-          email: 'info@noortruckinginc.com',
+          email: 'accounting@noortruckinginc.com',
           company_logo: '',
           address: '',
           phone: '',

@@ -256,7 +256,7 @@ const sendInvoiceEmail = async ({
     }
 
     const companyName = company?.company_name || 'Noor Trucking Inc.';
-    const companyEmail = company?.email || process.env.SMTP_FROM || process.env.SMTP_USER || 'info@noortruckinginc.com';
+    const companyEmail = company?.email || process.env.SMTP_FROM || process.env.SMTP_USER || 'accounting@noortruckinginc.com';
     const companyPhone = company?.phone || '';
     const companyWebsite = company?.website || '';
 
