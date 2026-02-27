@@ -13,10 +13,11 @@ const ensureLogoColumnType = async () => {
       ALTER TABLE company_settings
       MODIFY COLUMN company_logo LONGTEXT NULL
     `);
+    console.log('[SystemSettings] ✅ Column company_logo ensured as LONGTEXT');
   } catch (err) {
     // Ignore if already correct type or table/column doesn't exist yet
     if (!err.message.includes('Duplicate') && !err.message.includes("doesn't exist")) {
-      console.warn('[SystemSettings] Could not alter company_logo column:', err.message);
+      console.warn('[SystemSettings] ⚠️ Could not alter company_logo column:', err.message);
     }
   }
 };
