@@ -16,36 +16,68 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
+  // Important for Railway/External Proxy stability
   enableKeepAlive: true,
-  keepAliveInitialDelay: 10000, // 10 seconds
-  connectTimeout: 10000,
-  maxIdle: 10,
-  idleTimeout: 60000, // 60 seconds
+  keepAliveInitialDelay: 10000,
+  connectTimeout: 20000, // 20 seconds
   ssl: {
-    rejectUnauthorized: false // Often required for Railway/external connections
+    rejectUnauthorized: false
   }
 });
 
-// Listener for pool errors
+// Listener for pool errors to prevent process crash
 pool.on('error', (err) => {
   console.error('Unexpected database pool error:', err);
-  if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-    console.error('Database connection was closed by server. Pool will attempt to reconnect on next request.');
-  }
 });
 
-// Test the connection
-pool.getConnection()
-  .then(connection => {
-    console.log('✅ Database connected successfully');
-    connection.release();
-  })
-  .catch(err => {
-    console.error('❌ Initial database connection error:', err.message);
-    if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-      console.error('Tip: The server closed the connection immediately. This might be a firewall or proxy issue.');
+// Utility to test connection with retry
+const testConnection = async (retries = 3) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const connection = await pool.getConnection();
+      console.log('✅ Database connected successfully');
+      connection.release();
+      return true;
+    } catch (err) {
+      console.error(`❌ Connection attempt ${i + 1} failed:`, err.message);
+      if (i === retries - 1) throw err;
+      // Wait 1s before retry
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
-  });
+  }
+};
+
+testConnection().catch(err => {
+  console.error('Final database connection failure:', err.message);
+});
+
+// Wrapper to handle automatic retries on connection lost
+const originalExecute = pool.execute.bind(pool);
+const originalQuery = pool.query.bind(pool);
+
+pool.execute = async (...args) => {
+  try {
+    return await originalExecute(...args);
+  } catch (err) {
+    if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET') {
+      console.warn('⚠️ Connection lost. Retrying query...');
+      return await originalExecute(...args);
+    }
+    throw err;
+  }
+};
+
+pool.query = async (...args) => {
+  try {
+    return await originalQuery(...args);
+  } catch (err) {
+    if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET') {
+      console.warn('⚠️ Connection lost. Retrying query...');
+      return await originalQuery(...args);
+    }
+    throw err;
+  }
+};
 
 module.exports = pool;
 

@@ -22,8 +22,10 @@ const ensureLogoColumnType = async () => {
   }
 };
 
-// Run migration on first load
-ensureLogoColumnType();
+// Run migration with a slight delay to allow pool to settle
+setTimeout(() => {
+  ensureLogoColumnType();
+}, 2000);
 
 // ─── GET system settings ──────────────────────────────────────────────────────
 const getSystemSettings = async (req, res) => {
